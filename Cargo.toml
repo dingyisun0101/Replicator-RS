@@ -10,7 +10,7 @@ readme = "README.md"
 repository = "https://github.com/dingyisun0101/Replicator-RS"
 homepage = "https://github.com/dingyisun0101/Replicator-RS"
 documentation = "https://github.com/dingyisun0101/Replicator-RS"
-keywords = ["physics", "ecology", "math", "scientific", "SDE", "PDE", "ODE"]
+keywords = ["physics", "ecology", "math", "scientific", "SDE"]
 categories = ["science"]
 
 [dependencies]
