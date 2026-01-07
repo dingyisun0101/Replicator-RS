@@ -1,44 +1,53 @@
 // noise.rs
 //! =============================================================================================
-//! Noise: simplex-native stochastic updates with reusable scratch workspace
+//! Noise: state-vector stochastic updates with reusable scratch workspace
 //! =============================================================================================
 //!
 //! This module defines *optional* stochasticity applied **after** the deterministic integrator
-//! step. Noise is applied to a `Simplex` (not to a bare vector), and every noise update ends with
-//! `nu.sanitize()` to restore feasibility.
+//! step. Noise is applied to a `GeneticState<f64>` in frequency mode, and every noise update ends
+//! with `state.sanitize()` to restore feasibility.
 //!
 //! It provides:
 //!     - `NoiseKind` / `Noise`: public configuration
 //!     - `NoiseContext`: reusable buffer + Normal(0,1) distribution
-//!     - `apply_noise_inplace`: apply noise to `Simplex` in-place, then sanitize
+//!     - `apply_noise_inplace`: apply noise to `GeneticState` in-place, then sanitize
 //!
 //! =============================================================================================
 #![allow(dead_code)]
 
 use rand::Rng;
 use rand_distr::{Distribution, Normal};
+use crate::state::{GeneticState, Mode};
 
-use crate::simplex::Simplex;
-
-/// Optional stochasticity applied **after** the deterministic integrator step.
+/// ==============================================================================================
+/// ===================================== Kinds of Noise =========================================
+/// ==============================================================================================
 
 #[derive(Clone, Copy, Debug)]
 pub enum NoiseKind {
     /// No noise.
     None,
 
-    /// Multiplicative (proportional) Gaussian noise on ν with an approximate mass-preserving
-    /// projection (prior to sanitize):
-    /// ν_i < ν_i [1 + σ(η_i - \bar{η}) sqrt(dt)]
-    /// where η_i ~ N(0,1) and \bar{η} = Σ_j ν_j η_j.
+    /// Multiplicative Gaussian noise on ν with an approximate mass-preserving
+    ///     projection (prior to sanitize):
+    ///     ν_i < ν_i [1 + σ(η_i - \bar{η}) sqrt(dt)]
+    ///     where η_i ~ N(0,1) and \bar{η} = Σ_j ν_j η_j.
     ProportionalGaussian { sigma: f64 },
 
-    /// Demographic noise: additive Gaussian fluctuations proportional to sqrt(ν_i).
-    /// ν_i < ν_i + σ sqrt(ν_i) (η_i - \bar{η}_{sqrt(ν)}) sqrt(dt)
-    /// where \bar{η}_{sqrt(ν)} = (Σ_j sqrt(ν_j) η_j) / (Σ_j sqrt(ν_j)).
+    /// Demographic noise: 
+    ///     Gaussian fluctuations proportional to sqrt(ν_i).
+    ///     ν_i < ν_i + σ sqrt(ν_i) (η_i - \bar{η}_{sqrt(ν)}) sqrt(dt)
+    ///     where \bar{η}_{sqrt(ν)} = (Σ_j sqrt(ν_j) η_j) / (Σ_j sqrt(ν_j)).
     DemographicGaussian { sigma: f64 },
 }
 
+
+
+
+/// ==============================================================================================
+/// ======================================= Noise Struct =========================================
+/// ==============================================================================================
+/// 
 /// Noise configuration wrapper (public API).
 #[derive(Clone, Copy, Debug)]
 pub struct Noise {
@@ -63,7 +72,6 @@ impl Noise {
 }
 
 /// Reusable buffers and distribution objects for noise sampling.
-///
 /// Motivation:
 ///     - Sampling η_i ~ N(0,1) requires a buffer of length d.
 ///     - Allocating that buffer every step is expensive for large systems.
@@ -96,14 +104,19 @@ impl NoiseContext {
     }
 }
 
-/// Apply noise in-place to `nu` and then restore feasibility via `nu.sanitize()`.
+
+/// ==============================================================================================
+/// ============================== Core Function: Apply Noise ====================================
+/// ==============================================================================================
+
+/// Apply noise in-place to `state` and then restore feasibility via `state.sanitize()`.
 ///
 /// Contract:
 ///     - Noise may temporarily violate simplex constraints.
-///     - After this returns, `nu` is a valid simplex point (by virtue of `nu.sanitize()`).
+///     - After this returns, `state` is a valid simplex point (by virtue of `state.sanitize()`).
 #[inline]
 pub fn apply_noise_inplace(
-    nu: &mut Simplex,
+    state: &mut GeneticState<f64>,
     noise: Noise,
     dt: f64,
     ctx: &mut NoiseContext,
@@ -114,7 +127,7 @@ pub fn apply_noise_inplace(
         return;
     }
 
-    let d = nu.dim();
+    let d = state.state.len();
     ctx.resize_if_needed(d);
 
     match noise.kind {
@@ -135,7 +148,7 @@ pub fn apply_noise_inplace(
             // ----------------------------------------------------------------------------------
             // (2) eta_bar = Σ nu_i eta_i
             // ----------------------------------------------------------------------------------
-            let nu_arr = nu.as_array();
+            let nu_arr = &state.state;
             let mut eta_bar = 0.0;
             for i in 0..d {
                 eta_bar += nu_arr[i] * ctx.eta[i];
@@ -145,7 +158,7 @@ pub fn apply_noise_inplace(
             // (3) Multiplicative update
             // ----------------------------------------------------------------------------------
             let scale = sigma * dt.sqrt();
-            let nu_mut = nu.as_array_mut();
+            let nu_mut = &mut state.state;
             for i in 0..d {
                 let val = nu_mut[i] * (1.0 + scale * (ctx.eta[i] - eta_bar));
                 nu_mut[i] = if val.is_finite() && val > 0.0 { val } else { 0.0 };
@@ -154,7 +167,7 @@ pub fn apply_noise_inplace(
             // ----------------------------------------------------------------------------------
             // (4) Restore simplex constraints
             // ----------------------------------------------------------------------------------
-            nu.sanitize();
+            state.sanitize();
         }
 
         NoiseKind::DemographicGaussian { sigma } => {
@@ -172,7 +185,7 @@ pub fn apply_noise_inplace(
             // ----------------------------------------------------------------------------------
             // (2) eta_bar_sqrt = (Σ sqrt(nu_i) eta_i) / (Σ sqrt(nu_i))
             // ----------------------------------------------------------------------------------
-            let nu_arr = nu.as_array();
+            let nu_arr = &state.state;
             let mut num = 0.0;
             let mut den = 0.0;
             for i in 0..d {
@@ -187,7 +200,7 @@ pub fn apply_noise_inplace(
             // (3) Additive update
             // ----------------------------------------------------------------------------------
             let scale = sigma * dt.sqrt();
-            let nu_mut = nu.as_array_mut();
+            let nu_mut = &mut state.state;
             for i in 0..d {
                 let xi = if nu_mut[i] > 0.0 { nu_mut[i] } else { 0.0 };
                 let incr = scale * xi.sqrt() * (ctx.eta[i] - eta_bar_sqrt);
@@ -198,7 +211,7 @@ pub fn apply_noise_inplace(
             // ----------------------------------------------------------------------------------
             // (4) Restore simplex constraints
             // ----------------------------------------------------------------------------------
-            nu.sanitize();
+            state.sanitize();
         }
     }
 }
