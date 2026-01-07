@@ -1,2 +1,2 @@
-pub(crate) mod rk4;
-pub(crate) mod noise;
+pub mod rk4;
+pub mod noise;

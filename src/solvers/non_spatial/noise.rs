@@ -17,7 +17,7 @@
 
 use rand::Rng;
 use rand_distr::{Distribution, Normal};
-use crate::state::{GeneticState, Mode};
+use crate::state::GeneticState;
 
 /// ==============================================================================================
 /// ===================================== Kinds of Noise =========================================

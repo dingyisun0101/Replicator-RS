@@ -21,7 +21,7 @@ pub fn create_well_mixed_gs<T>(
     population_i: Option<T>,   // per-taxon population (only used for Population mode)
 ) -> GeneticState<T>
 where
-    T: Float + Clone + Default,
+    T: Float + Clone + Default + std::iter::Sum<T>,
 {
     let zero = T::zero();
     let mut state = Array1::from_elem(num_taxa, zero);

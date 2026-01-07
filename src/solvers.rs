@@ -1,2 +1,2 @@
-mod non_spatial;
-mod spatial;
+pub mod non_spatial;
+pub mod spatial;

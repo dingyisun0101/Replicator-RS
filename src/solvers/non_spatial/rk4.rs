@@ -216,7 +216,7 @@ pub fn solve(
     // Scratch / noise context / RNG for the whole run.
     let mut sc = Rk4Scratch::new(d);
     let mut noise_ctx = NoiseContext::new(d);
-    let mut rng = SmallRng::from_entropy();
+    let mut rng = SmallRng::try_from_os_rng().unwrap();
 
     // Main loop: deterministic RK4 -> sanitize -> stochastic -> snapshot.
     for step in 1..=num_steps {

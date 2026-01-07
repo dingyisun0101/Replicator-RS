@@ -1,7 +1,9 @@
 /// ==============================================================================================
 /// =============================== Single Spatiotemporal State ==================================
 /// ==============================================================================================
-use num_traits::{Float, ToPrimitive};
+
+use serde::{Deserialize, Serialize};
+use num_traits::Float;
 use ndarray::parallel::prelude::*;
 use ndarray::{Array1, ArrayD, IxDyn};
 
@@ -11,7 +13,7 @@ use ndarray::{Array1, ArrayD, IxDyn};
 ///         - `Population`: entries carry absolute counts (mass not necessarily 1)
 ///     where 'cutoff' is an absorbing boundary.
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum Mode<T> {
     Frequency { cutoff: T },
     Population { cutoff: T, carrying_capacity: Option<T> },
@@ -21,7 +23,7 @@ pub enum Mode<T> {
 ///     - `state`: well-mixed / global vector (d)
 ///     - `space`: spatial field (shape arbitrary: [X, Y, Z, ...])
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct GeneticState<T> {
     pub mode: Mode<T>,
     pub time: usize,
@@ -33,7 +35,7 @@ pub struct GeneticState<T> {
 /// Constructors
 impl<T> GeneticState<T>
 where
-    T: Float + Clone + Default,
+    T: Float + Clone + Default + std::iter::Sum<T>,
 {
     #[inline]
     pub fn from_arrays(
@@ -90,7 +92,7 @@ where
 /// ==============================================================================================
 impl<T> GeneticState<T>
 where
-    T: Float + Send + Sync,
+    T: Float + Send + Sync + std::iter::Sum<T>,
 {
     // Hard-threshold invalid / nonpositive / below-cutoff entries to `zero`.
     //     - `cutoff` is assumed nonnegative by the caller
@@ -181,8 +183,6 @@ where
 /// ==============================================================================================
 /// ================================= Time Series Container ======================================
 /// ==============================================================================================
-
-use serde::{Deserialize, Serialize};
 use std::fs::{create_dir_all, File};
 use std::io::{Error, ErrorKind, Result, Write};
 use std::path::Path;
@@ -191,6 +191,8 @@ use std::path::Path;
 ///     Design notes:
 ///         - `epoch` is the index of the dataframe
 ///         - per-sample time lives inside `GeneticState::time`
+
+#[derive(Clone, Serialize)]
 pub struct GeneticStateTimeSeries<'a, T> {
     pub epoch: usize,     // Epoch index
     pub states: Vec<&'a T>, // Ordered samples (borrowed)
